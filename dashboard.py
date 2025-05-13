@@ -329,8 +329,30 @@ def load_data():
                 regular_expenses = trans_df[~investment_mask]['Amount'].sum()
                 investment_amount = trans_df[investment_mask]['Amount'].sum()
                 
-                # For this dataset, set a fixed income
-                income = regular_expenses * 1.5  # Assuming income is 1.5 times expenses for demo
+                # Try to read income from cell O3 in the first sheet
+                try:
+                    # Get the first sheet in the workbook
+                    first_sheet = wb.sheet_by_index(0)
+                    
+                    # Read income from cell O3 (row 2, column 14 in 0-indexed system)
+                    if first_sheet.ncols > 14 and first_sheet.nrows > 2:
+                        income_cell_value = first_sheet.cell_value(2, 14)  # O3 in 0-indexed is (2,14)
+                        # Convert to numeric if possible
+                        try:
+                            income = float(income_cell_value)
+                            print(f"  Income read from cell O3: ₹{income:.2f}")
+                        except (ValueError, TypeError):
+                            # Fallback to formula if cell doesn't contain a valid number
+                            income = regular_expenses * 1.5
+                            print(f"  Could not convert O3 cell value '{income_cell_value}' to number, using calculated income: ₹{income:.2f}")
+                    else:
+                        # Sheet doesn't have enough rows/columns, use calculated income
+                        income = regular_expenses * 1.5
+                        print(f"  First sheet doesn't have cell O3, using calculated income: ₹{income:.2f}")
+                except Exception as e:
+                    # Fallback to formula if there's any error reading the cell
+                    income = regular_expenses * 1.5
+                    print(f"  Error reading income from cell O3: {str(e)}, using calculated income: ₹{income:.2f}")
                 
                 # Calculate surplus
                 surplus = income - regular_expenses
@@ -427,8 +449,15 @@ category_monthly_df = pd.DataFrame()
 
 def create_app():
     """Create and return the Dash app instance"""
-    # Load data
-    global summary_df, all_transactions_df, category_monthly_df
+    # Reset global variables first to ensure fresh loading
+    global summary_df, all_transactions_df, category_monthly_df, months, month_names
+    
+    # Initialize empty lists for months
+    months = []
+    month_names = []
+    
+    # Load data fresh
+    print("Initial loading of data...")
     summary_df, all_transactions_df, category_monthly_df = load_data()
     
     # Clean up data - handle null values
@@ -449,6 +478,8 @@ def create_app():
     ytd_expenses = summary_df['Total Expenses'].sum() if not summary_df.empty else 0
     ytd_investments = summary_df['Investments'].sum() if not summary_df.empty else 0
     ytd_surplus = summary_df['Surplus'].sum() if not summary_df.empty else 0
+    
+    print(f"Initial data load complete. YTD Income: {ytd_income}, YTD Expenses: {ytd_expenses}")
     
     # Calculate averages, preventing division by zero
     month_count = max(1, len(months))  # Ensure at least 1 to prevent division by zero
@@ -507,6 +538,21 @@ def create_app():
     # Initialize the Dash app with callback exceptions suppressed
     app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
     
+    # Initialize a toast container for displaying refresh notifications
+    toast_container = html.Div(
+        [
+            dbc.Toast(
+                id="refresh-toast",
+                header="Dashboard Refreshed",
+                is_open=False,
+                dismissable=True,
+                duration=8000,  # Duration in milliseconds (8 seconds)
+                icon="success",
+                style={"position": "fixed", "top": 20, "right": 20, "width": "400px", "zIndex": 1000}
+            ),
+        ]
+    )
+    
     # Get unique people and categories for dropdown options, removing null values
     if not all_transactions_df.empty:
         unique_people = [person for person in all_transactions_df['Who'].unique() if person is not None and pd.notna(person)]
@@ -526,6 +572,9 @@ def create_app():
     
     # Define the app layout
     app.layout = dbc.Container([
+        # Toast container for notifications
+        toast_container,
+        
         dbc.Row([
             dbc.Col([
                 html.H1("Personal Budget Dashboard - 2025", className="text-center mt-3 mb-4"),
@@ -653,7 +702,7 @@ def create_app():
                 dbc.Card([
                     dbc.CardHeader("Total Income (YTD)", className="text-center"),
                     dbc.CardBody([
-                        html.H3(format_inr(ytd_income), className="text-center text-success")
+                        html.H3(format_inr(ytd_income), id="ytd-income-display", className="text-center text-success")
                     ])
                 ], className="mb-4")
             ], width=3),
@@ -662,7 +711,7 @@ def create_app():
                 dbc.Card([
                     dbc.CardHeader("Total Expenses (YTD)", className="text-center"),
                     dbc.CardBody([
-                        html.H3(format_inr(ytd_expenses), className="text-center text-danger")
+                        html.H3(format_inr(ytd_expenses), id="ytd-expenses-display", className="text-center text-danger")
                     ])
                 ], className="mb-4")
             ], width=3),
@@ -671,7 +720,7 @@ def create_app():
                 dbc.Card([
                     dbc.CardHeader("Total Investments (YTD)", className="text-center"),
                     dbc.CardBody([
-                        html.H3(format_inr(ytd_investments), className="text-center text-info")
+                        html.H3(format_inr(ytd_investments), id="ytd-investments-display", className="text-center text-info")
                     ])
                 ], className="mb-4")
             ], width=3),
@@ -680,7 +729,7 @@ def create_app():
                 dbc.Card([
                     dbc.CardHeader("Total Surplus (YTD)", className="text-center"),
                     dbc.CardBody([
-                        html.H3(format_inr(ytd_surplus), className="text-center text-primary")
+                        html.H3(format_inr(ytd_surplus), id="ytd-surplus-display", className="text-center text-primary")
                     ])
                 ], className="mb-4")
             ], width=3)
@@ -1884,7 +1933,16 @@ def create_app():
         [Output('upload-output', 'children'),
          Output('dashboard-content', 'style'),
          Output('no-files-message', 'style'),
-         Output('transactions-store', 'data', allow_duplicate=True)],  # Add transactions store update
+         Output('transactions-store', 'data', allow_duplicate=True),
+         # Add outputs for the YTD cards
+         Output('ytd-income-display', 'children', allow_duplicate=True),
+         Output('ytd-expenses-display', 'children', allow_duplicate=True),
+         Output('ytd-investments-display', 'children', allow_duplicate=True),
+         Output('ytd-surplus-display', 'children', allow_duplicate=True),
+         # Add output for the toast
+         Output('refresh-toast', 'is_open', allow_duplicate=True),
+         Output('refresh-toast', 'header', allow_duplicate=True),
+         Output('refresh-toast', 'children', allow_duplicate=True)],
         Input('upload-data', 'contents'),
         State('upload-data', 'filename'),
         State('upload-data', 'last_modified'),
@@ -1896,7 +1954,7 @@ def create_app():
             has_files = has_excel_files()
             dashboard_style = {'display': 'block'} if has_files else {'display': 'none'}
             no_files_style = {'display': 'none'} if has_files else {'display': 'block', 'marginTop': '20px'}
-            return html.Div("Upload your Excel files to get started."), dashboard_style, no_files_style, dash.no_update
+            return html.Div("Upload your Excel files to get started."), dashboard_style, no_files_style, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
         
         upload_results = []
         data_dir = get_data_dir()
@@ -1928,31 +1986,113 @@ def create_app():
                     html.Span(" ({})".format(datetime.fromtimestamp(date/1000).strftime('%Y-%m-%d %H:%M:%S')))
                 ]))
                 
+                print(f"Successfully uploaded file: {filename}")
+                
             except Exception as e:
                 upload_results.append(html.Div("Error processing {}: {}".format(filename, str(e)), 
                                               style={'color': 'red'}))
+                print(f"Error uploading file {filename}: {str(e)}")
         
         # If any upload was successful, reload data
         if upload_success:
             try:
-                # Use global declarations to update data
-                global summary_df, all_transactions_df, category_monthly_df
+                print("Upload was successful, performing complete data reload...")
+                
+                # Reset global data structures to force complete reload
+                global summary_df, all_transactions_df, category_monthly_df, months, month_names
+                
+                # Reset month lists to ensure fresh load
+                months = []
+                month_names = []
+                
+                # Force reload of all data
                 summary_df, all_transactions_df, category_monthly_df = load_data()
                 
+                # Calculate YTD values freshly
+                ytd_income = summary_df['Total Income'].sum() if not summary_df.empty else 0
+                ytd_expenses = summary_df['Total Expenses'].sum() if not summary_df.empty else 0
+                ytd_investments = summary_df['Investments'].sum() if not summary_df.empty else 0
+                ytd_surplus = summary_df['Surplus'].sum() if not summary_df.empty else 0
+                
+                print(f"Data reload complete. YTD Income: {ytd_income}, YTD Expenses: {ytd_expenses}, YTD Investments: {ytd_investments}, YTD Surplus: {ytd_surplus}")
+                
                 # Add automatic refresh message
-                upload_results.append(html.Div(
-                    "Data loaded automatically. You can view the dashboard now.",
-                    style={'fontWeight': 'bold', 'marginTop': '10px', 'color': 'green'}
-                ))
+                upload_results.append(html.Div([
+                    html.Div(
+                        "Data loaded successfully. Dashboard is now updated.",
+                        style={'fontWeight': 'bold', 'marginTop': '10px', 'color': 'green'}
+                    ),
+                    html.Div(
+                        f"Total Income (YTD): ₹{ytd_income:,.2f} | Total Expenses (YTD): ₹{ytd_expenses:,.2f}",
+                        style={'fontSize': '0.9em', 'color': '#555', 'marginTop': '5px'}
+                    )
+                ]))
                 
                 # Prepare transaction data for updating all charts
                 transactions_data = all_transactions_df.to_dict('records') if not all_transactions_df.empty else []
+                
+                # Format the values for YTD cards
+                income_display = format_inr(ytd_income)
+                expenses_display = format_inr(ytd_expenses)
+                investments_display = format_inr(ytd_investments)
+                surplus_display = format_inr(ytd_surplus)
+                
+                # Check if we have files after upload
+                has_files = has_excel_files()
+                dashboard_style = {'display': 'block'} if has_files else {'display': 'none'}
+                no_files_style = {'display': 'none'} if has_files else {'display': 'block', 'marginTop': '20px'}
+                
+                # Create toast content with uploaded files summary
+                timestamp = datetime.now().strftime('%H:%M:%S')
+                excel_files, _ = get_excel_files()
+                file_count = len(excel_files)
+                month_count = len(month_names)
+                
+                uploaded_files = [f for f in list_of_filenames if f.endswith('.xlsx')]
+                
+                toast_header = f"Files Uploaded Successfully ({timestamp})"
+                toast_content = html.Div([
+                    html.H5("Upload Summary", className="mb-2"),
+                    html.P([
+                        f"Uploaded ", html.B(f"{len(uploaded_files)}"), " new files"
+                    ]),
+                    html.Ul([html.Li(filename) for filename in uploaded_files]),
+                    html.Hr(className="my-2"),
+                    html.P(f"Total files now available: {file_count} files covering {month_count} months"),
+                    html.P("Year to Date Totals:", className="font-weight-bold mt-3 mb-1"),
+                    html.Ul([
+                        html.Li([html.Span("Income: "), html.Span(income_display, className="text-success")]),
+                        html.Li([html.Span("Expenses: "), html.Span(expenses_display, className="text-danger")]),
+                        html.Li([html.Span("Investments: "), html.Span(investments_display, className="text-info")]),
+                        html.Li([html.Span("Surplus: "), html.Span(surplus_display, className="text-primary")])
+                    ])
+                ])
+                
+                # Return all values including YTD card updates and toast
+                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, income_display, expenses_display, investments_display, surplus_display, True, toast_header, toast_content
             except Exception as e:
-                upload_results.append(html.Div(
-                    "Error loading data: {}. Click 'Refresh Dashboard' to try again.".format(str(e)),
-                    style={'fontWeight': 'bold', 'marginTop': '10px', 'color': 'red'}
-                ))
+                error_msg = str(e)
+                print(f"Error during data reload after upload: {error_msg}")
+                upload_results.append(html.Div([
+                    html.Div(
+                        "Error loading data after upload. Click 'Refresh Dashboard' to try again.",
+                        style={'fontWeight': 'bold', 'marginTop': '10px', 'color': 'red'}
+                    ),
+                    html.Div(
+                        f"Error details: {error_msg}",
+                        style={'fontSize': '0.8em', 'color': '#d32f2f', 'marginTop': '5px'}
+                    )
+                ]))
                 transactions_data = dash.no_update
+                # Create error toast content
+                error_toast_content = html.Div([
+                    html.H5("Upload Error", className="mb-2 text-danger"),
+                    html.P("An error occurred while processing the uploaded files:"),
+                    html.P(error_msg, className="p-2 bg-light border rounded text-danger")
+                ])
+                
+                # Keep YTD displays the same if there's an error
+                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Error", error_toast_content
         else:
             # Add message to use refresh button if no successful uploads
             upload_results.append(html.Div(
@@ -1960,13 +2100,13 @@ def create_app():
                 style={'fontWeight': 'bold', 'marginTop': '10px', 'color': 'orange'}
             ))
             transactions_data = dash.no_update
+            # Keep YTD displays the same if there's no successful upload
+            return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Warning", html.P("No files were successfully uploaded. Please check the file format and try again.")
         
         # Check if we have files after upload
         has_files = has_excel_files()
         dashboard_style = {'display': 'block'} if has_files else {'display': 'none'}
         no_files_style = {'display': 'none'} if has_files else {'display': 'block', 'marginTop': '20px'}
-        
-        return html.Div(upload_results), dashboard_style, no_files_style, transactions_data
     
     # Callback to refresh available files list - simpler version without delete buttons
     @app.callback(
@@ -2003,17 +2143,43 @@ def create_app():
         [Output('refresh-output', 'children', allow_duplicate=True),
          Output('dashboard-content', 'style', allow_duplicate=True),
          Output('no-files-message', 'style', allow_duplicate=True),
-         Output('transactions-store', 'data', allow_duplicate=True)],  # Add transactions store to update all charts
+         Output('transactions-store', 'data', allow_duplicate=True),
+         # Add outputs for the YTD cards
+         Output('ytd-income-display', 'children', allow_duplicate=True),
+         Output('ytd-expenses-display', 'children', allow_duplicate=True),
+         Output('ytd-investments-display', 'children', allow_duplicate=True),
+         Output('ytd-surplus-display', 'children', allow_duplicate=True),
+         # Add output for the toast
+         Output('refresh-toast', 'is_open', allow_duplicate=True),
+         Output('refresh-toast', 'header', allow_duplicate=True),
+         Output('refresh-toast', 'children', allow_duplicate=True)],
         Input('refresh-button', 'n_clicks'),
         prevent_initial_call=True
     )
     def refresh_dashboard(n_clicks):
         if n_clicks:
-            # Reload data
+            # Reload data completely - this is important for proper refresh
             try:
-                # Use global declarations to update data across callbacks
-                global summary_df, all_transactions_df, category_monthly_df
+                print("Performing complete dashboard refresh...")
+                
+                # Reset global data structures to force complete reload
+                global summary_df, all_transactions_df, category_monthly_df, months, month_names
+                
+                # Reset month lists to ensure fresh load
+                months = []
+                month_names = []
+                
+                # Force reload of all data
                 summary_df, all_transactions_df, category_monthly_df = load_data()
+                
+                # Calculate YTD values freshly
+                ytd_income = summary_df['Total Income'].sum() if not summary_df.empty else 0
+                ytd_expenses = summary_df['Total Expenses'].sum() if not summary_df.empty else 0
+                ytd_investments = summary_df['Investments'].sum() if not summary_df.empty else 0
+                ytd_surplus = summary_df['Surplus'].sum() if not summary_df.empty else 0
+                
+                print(f"YTD Income after refresh: {ytd_income}")
+                print(f"YTD Expenses after refresh: {ytd_expenses}")
                 
                 # Check if files exist after refresh
                 has_files = has_excel_files()
@@ -2026,21 +2192,86 @@ def create_app():
                 transactions_data = all_transactions_df.to_dict('records') if not all_transactions_df.empty else []
                 
                 timestamp = datetime.now().strftime('%H:%M:%S')
+                
+                print(f"Dashboard refresh completed at {timestamp}")
+                
+                # Format the values for display
+                income_display = format_inr(ytd_income)
+                expenses_display = format_inr(ytd_expenses)
+                investments_display = format_inr(ytd_investments)
+                surplus_display = format_inr(ytd_surplus)
+                
+                # Get information about files loaded
+                excel_files, _ = get_excel_files()
+                file_count = len(excel_files)
+                month_count = len(month_names)
+                
+                # Create toast contents with summary data
+                toast_header = f"Dashboard Refreshed ({timestamp})"
+                toast_content = html.Div([
+                    html.H5("Refresh Summary", className="mb-2"),
+                    html.P([
+                        f"Files loaded: ", html.B(f"{file_count}"), 
+                        " files covering ", html.B(f"{month_count}"), " months"
+                    ]),
+                    html.Hr(className="my-2"),
+                    html.P("Year to Date Totals:", className="font-weight-bold mt-3 mb-1"),
+                    html.Ul([
+                        html.Li([html.Span("Income: "), html.Span(income_display, className="text-success")]),
+                        html.Li([html.Span("Expenses: "), html.Span(expenses_display, className="text-danger")]),
+                        html.Li([html.Span("Investments: "), html.Span(investments_display, className="text-info")]),
+                        html.Li([html.Span("Surplus: "), html.Span(surplus_display, className="text-primary")])
+                    ]),
+                    html.P(f"Monthly Averages (across {month_count} months):", className="font-weight-bold mt-3 mb-1"),
+                    html.Ul([
+                        html.Li(f"Income: {format_inr(ytd_income/max(1, month_count))}"),
+                        html.Li(f"Expenses: {format_inr(ytd_expenses/max(1, month_count))}"),
+                        html.Li(f"Investments: {format_inr(ytd_investments/max(1, month_count))}")
+                    ])
+                ])
+                
                 return (
-                    html.Div("Dashboard refreshed at {}".format(timestamp), 
-                           style={'color': 'green'}),
+                    html.Div([
+                        html.Span("Dashboard refreshed at {}".format(timestamp), style={'color': 'green'}),
+                        html.Br(),
+                        html.Span(f"Total Income (YTD): {income_display} | Total Expenses (YTD): {expenses_display}", 
+                                 style={'fontSize': '0.9em', 'color': '#555'})
+                    ]),
                     dashboard_style,
                     no_files_style,
-                    transactions_data  # Return updated transaction data to refresh all tabs
+                    transactions_data,  # Return updated transaction data to refresh all tabs
+                    income_display,     # Update YTD cards
+                    expenses_display,
+                    investments_display,
+                    surplus_display,
+                    True,              # Show the toast
+                    toast_header,      # Toast header
+                    toast_content      # Toast content
                 )
             except Exception as e:
+                print(f"Error during refresh: {str(e)}")
+                # Create error toast content
+                error_toast_content = html.Div([
+                    html.H5("Refresh Error", className="mb-2 text-danger"),
+                    html.P("An error occurred while refreshing the dashboard:"),
+                    html.P(str(e), className="p-2 bg-light border rounded text-danger")
+                ])
+                
                 return (
                     html.Div("Error refreshing data: {}".format(str(e)), style={'color': 'red'}),
                     {'display': 'none'},
                     {'display': 'block', 'marginTop': '20px'},
-                    []  # Empty data for transactions store
+                    [],  # Empty data for transactions store
+                    dash.no_update,  # Don't update YTD cards on error
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    True,  # Show toast even on error
+                    "Refresh Error",  # Toast header for error
+                    error_toast_content  # Toast content for error
                 )
-        return "", {'display': 'none'}, {'display': 'block', 'marginTop': '20px'}, []
+        # Default case (no click event)
+        return "", {'display': 'none'}, {'display': 'block', 'marginTop': '20px'}, [], dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     
     @app.callback(
         Output('nwl-category-chart', 'figure'),

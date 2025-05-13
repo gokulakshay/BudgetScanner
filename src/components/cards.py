@@ -100,7 +100,8 @@ def create_monthly_averages_cards(avg_monthly_income, avg_monthly_expenses,
             create_summary_card(
                 "Avg. Monthly Income",
                 format_inr(avg_monthly_income),
-                "text-dark"
+                "text-dark",
+                "avg-monthly-income-value"
             )
         ], width=3),
         
@@ -108,7 +109,8 @@ def create_monthly_averages_cards(avg_monthly_income, avg_monthly_expenses,
             create_summary_card(
                 "Avg. Monthly Expenses",
                 format_inr(avg_monthly_expenses),
-                "text-dark"
+                "text-dark",
+                "avg-monthly-expenses-value"
             )
         ], width=3),
         
@@ -116,7 +118,8 @@ def create_monthly_averages_cards(avg_monthly_income, avg_monthly_expenses,
             create_summary_card(
                 "Avg. Monthly Investments",
                 format_inr(avg_monthly_investments),
-                "text-dark"
+                "text-dark",
+                "avg-monthly-investments-value"
             )
         ], width=3),
         
@@ -124,7 +127,8 @@ def create_monthly_averages_cards(avg_monthly_income, avg_monthly_expenses,
             create_summary_card(
                 "Avg. Monthly Surplus",
                 format_inr(avg_monthly_surplus),
-                "text-dark"
+                "text-dark",
+                "avg-monthly-surplus-value"
             )
         ], width=3)
     ])
@@ -148,7 +152,7 @@ def create_financial_planning_cards(avg_monthly_needs, emergency_fund_suggestion
                     html.Span(" ℹ️", id="monthly-needs-info", style={"cursor": "pointer"})
                 ], className="text-center d-flex justify-content-center align-items-center"),
                 dbc.CardBody([
-                    html.H3(format_inr(avg_monthly_needs), className="text-center", style={"color": "#00897B"})
+                    html.H3(format_inr(avg_monthly_needs), id="monthly-needs-value", className="text-center", style={"color": "#00897B"})
                 ]),
                 dbc.Tooltip(
                     "Based on your 'Needs' labeled transactions. This is the amount you should budget monthly for necessities.",
@@ -164,7 +168,7 @@ def create_financial_planning_cards(avg_monthly_needs, emergency_fund_suggestion
                     html.Span(" ℹ️", id="emergency-fund-info", style={"cursor": "pointer"})
                 ], className="text-center d-flex justify-content-center align-items-center"),
                 dbc.CardBody([
-                    html.H3(format_inr(emergency_fund_suggestion), className="text-center", style={"color": "#E53935"})
+                    html.H3(format_inr(emergency_fund_suggestion), id="emergency-fund-value", className="text-center", style={"color": "#E53935"})
                 ]),
                 dbc.Tooltip(
                     "Calculated as 6 months of your monthly needs. This is the recommended amount to keep as an emergency fund.",

@@ -195,11 +195,19 @@ def create_layout(summary_df, all_transactions_df, category_monthly_df, month_na
     if not all_transactions_df.empty and 'Label' in all_transactions_df.columns:
         # Get transactions labeled as 'Needs'
         needs_transactions = all_transactions_df[all_transactions_df['Label'] == 'Needs']
+        
         if not needs_transactions.empty:
-            # Calculate total needs expenses across all months
-            total_needs = needs_transactions['Amount'].sum()
-            # Calculate average monthly needs (total / number of months)
-            avg_monthly_needs = total_needs / month_count
+            # Calculate monthly needs by first grouping by month
+            monthly_needs = needs_transactions.groupby('Month')['Amount'].sum()
+            
+            # Calculate the average of monthly needs (average across months)
+            if len(monthly_needs) > 0:
+                avg_monthly_needs = monthly_needs.mean()
+                print(f"Calculated avg monthly needs: {avg_monthly_needs} across {len(monthly_needs)} months")
+            else:
+                # Fallback if no months have labeled data
+                avg_monthly_needs = avg_monthly_expenses * 0.5
+                
             # Calculate emergency fund suggestion (6 times monthly needs)
             emergency_fund_suggestion = avg_monthly_needs * 6
     

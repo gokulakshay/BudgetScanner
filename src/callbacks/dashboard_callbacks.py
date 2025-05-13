@@ -17,8 +17,11 @@ from ..utils.helpers import format_inr
 def register_callbacks(app):
     """Register all callbacks for the dashboard application"""
     
-    # Global variables to store data
-    global summary_df, all_transactions_df, category_monthly_df
+    # Import data loading functions
+    from ..data.loader import load_data, months, month_names
+    
+    # Load data initially
+    summary_df, all_transactions_df, category_monthly_df = load_data()
     
     @app.callback(
         Output('category-pie-chart', 'figure'),
@@ -809,13 +812,17 @@ def register_callbacks(app):
     )
     def update_monthly_overview_chart(transactions_data):
         """Update the monthly overview chart"""
-        # Use summary_df because it already has the aggregated data
-        if summary_df.empty:
+        # We need to refresh the summary data first
+        from ..data.loader import load_data
+        current_summary_df, _, _ = load_data()
+        
+        # Use the current summary data to create the chart
+        if current_summary_df.empty:
             return px.bar(title="No monthly data available")
         
         # Create bar chart
         fig = px.bar(
-            summary_df, 
+            current_summary_df, 
             x='Month', 
             y=['Total Income', 'Total Expenses', 'Investments'],
             barmode='group',
@@ -835,13 +842,17 @@ def register_callbacks(app):
     )
     def update_monthly_surplus_chart(transactions_data):
         """Update the monthly surplus chart"""
-        # Use summary_df because it already has the aggregated data
-        if summary_df.empty:
+        # We need to refresh the summary data first
+        from ..data.loader import load_data
+        current_summary_df, _, _ = load_data()
+        
+        # Use the current summary data to create the chart
+        if current_summary_df.empty:
             return px.line(title="No monthly data available")
         
         # Create line chart
         fig = px.line(
-            summary_df, 
+            current_summary_df, 
             x='Month', 
             y='Surplus',
             title="Monthly Surplus Trend",
@@ -856,13 +867,17 @@ def register_callbacks(app):
     )
     def update_monthly_investments_chart(transactions_data):
         """Update the monthly investments chart"""
-        # Use summary_df because it already has the aggregated data
-        if summary_df.empty:
+        # We need to refresh the summary data first
+        from ..data.loader import load_data
+        current_summary_df, _, _ = load_data()
+        
+        # Use the current summary data to create the chart
+        if current_summary_df.empty:
             return px.line(title="No monthly data available")
         
         # Create line chart
         fig = px.line(
-            summary_df, 
+            current_summary_df, 
             x='Month', 
             y='Investments',
             title="Monthly Investments Trend",
@@ -913,6 +928,14 @@ def register_callbacks(app):
          Output('ytd-expenses-display', 'children', allow_duplicate=True),
          Output('ytd-investments-display', 'children', allow_duplicate=True),
          Output('ytd-surplus-display', 'children', allow_duplicate=True),
+         # Add outputs for monthly averages
+         Output('avg-monthly-income-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-expenses-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-investments-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-surplus-value', 'children', allow_duplicate=True),
+         # Add outputs for financial planning cards
+         Output('monthly-needs-value', 'children', allow_duplicate=True),
+         Output('emergency-fund-value', 'children', allow_duplicate=True),
          # Add output for the toast
          Output('refresh-toast', 'is_open', allow_duplicate=True),
          Output('refresh-toast', 'header', allow_duplicate=True),
@@ -958,16 +981,58 @@ def register_callbacks(app):
                 
                 print(f"Dashboard refresh completed at {timestamp}")
                 
+                # Calculate monthly averages
+                month_count = len(month_names)
+                avg_monthly_income = ytd_income / max(1, month_count)
+                avg_monthly_expenses = ytd_expenses / max(1, month_count)
+                avg_monthly_investments = ytd_investments / max(1, month_count)
+                avg_monthly_surplus = ytd_surplus / max(1, month_count)
+                
+                # Calculate updated monthly needs and emergency fund
+                avg_monthly_needs = avg_monthly_expenses * 0.5  # Default: 50% of expenses
+                
+                # If we have labeled data, calculate based on actual "Needs" transactions
+                if not all_transactions_df.empty and 'Label' in all_transactions_df.columns:
+                    # Get transactions labeled as 'Needs'
+                    needs_transactions = all_transactions_df[all_transactions_df['Label'] == 'Needs']
+                    
+                    if not needs_transactions.empty:
+                        # Ensure Amount is numeric
+                        needs_transactions['Amount'] = pd.to_numeric(needs_transactions['Amount'], errors='coerce')
+                        needs_transactions = needs_transactions.dropna(subset=['Amount'])
+                        
+                        if not needs_transactions.empty:
+                            # Calculate monthly needs by first grouping by month
+                            monthly_needs = needs_transactions.groupby('Month')['Amount'].sum()
+                            
+                            # Calculate the average of monthly needs (average across months)
+                            if len(monthly_needs) > 0:
+                                avg_monthly_needs = monthly_needs.mean()
+                
+                # Calculate emergency fund suggestion (6 times monthly needs)
+                emergency_fund_suggestion = avg_monthly_needs * 6
+                
+                # Print the values to ensure they're calculated correctly
+                print(f"avg_monthly_needs for refresh: {avg_monthly_needs}")
+                print(f"emergency_fund_suggestion for refresh: {emergency_fund_suggestion}")
+                
                 # Format the values for display
                 income_display = format_inr(ytd_income)
                 expenses_display = format_inr(ytd_expenses)
                 investments_display = format_inr(ytd_investments)
                 surplus_display = format_inr(ytd_surplus)
                 
+                avg_income_display = format_inr(avg_monthly_income)
+                avg_expenses_display = format_inr(avg_monthly_expenses)
+                avg_investments_display = format_inr(avg_monthly_investments)
+                avg_surplus_display = format_inr(avg_monthly_surplus)
+                
+                monthly_needs_display = format_inr(avg_monthly_needs)
+                emergency_fund_display = format_inr(emergency_fund_suggestion)
+                
                 # Get information about files loaded
                 excel_files, _ = get_excel_files()
                 file_count = len(excel_files)
-                month_count = len(month_names)
                 
                 # Create toast contents with summary data
                 toast_header = f"Dashboard Refreshed ({timestamp})"
@@ -987,11 +1052,15 @@ def register_callbacks(app):
                     ]),
                     html.P(f"Monthly Averages (across {month_count} months):", className="font-weight-bold mt-3 mb-1"),
                     html.Ul([
-                        html.Li(f"Income: {format_inr(ytd_income/max(1, month_count))}"),
-                        html.Li(f"Expenses: {format_inr(ytd_expenses/max(1, month_count))}"),
-                        html.Li(f"Investments: {format_inr(ytd_investments/max(1, month_count))}")
+                        html.Li(f"Income: {avg_income_display}"),
+                        html.Li(f"Expenses: {avg_expenses_display}"),
+                        html.Li(f"Investments: {avg_investments_display}"),
+                        html.Li(f"Monthly Needs: {monthly_needs_display}"),
+                        html.Li(f"Emergency Fund: {emergency_fund_display}")
                     ])
                 ])
+                
+                # Values ready to be returned
                 
                 return (
                     html.Div([
@@ -1007,6 +1076,12 @@ def register_callbacks(app):
                     expenses_display,
                     investments_display,
                     surplus_display,
+                    avg_income_display,  # Update monthly average cards
+                    avg_expenses_display,
+                    avg_investments_display,
+                    avg_surplus_display,
+                    monthly_needs_display,  # Update financial planning cards
+                    emergency_fund_display,
                     True,              # Show the toast
                     toast_header,      # Toast header
                     toast_content      # Toast content
@@ -1029,12 +1104,18 @@ def register_callbacks(app):
                     dash.no_update,
                     dash.no_update,
                     dash.no_update,
+                    dash.no_update,  # Don't update monthly average cards on error
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,
+                    dash.no_update,  # Don't update financial planning cards on error
+                    dash.no_update,
                     True,  # Show toast even on error
                     "Refresh Error",  # Toast header for error
                     error_toast_content  # Toast content for error
                 )
         # Default case (no click event)
-        return "", {'display': 'none'}, {'display': 'block', 'marginTop': '20px'}, [], dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return "", {'display': 'none'}, {'display': 'block', 'marginTop': '20px'}, [], dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     
     # Callback for file upload
     @app.callback(
@@ -1047,6 +1128,14 @@ def register_callbacks(app):
          Output('ytd-expenses-display', 'children', allow_duplicate=True),
          Output('ytd-investments-display', 'children', allow_duplicate=True),
          Output('ytd-surplus-display', 'children', allow_duplicate=True),
+         # Add outputs for monthly averages
+         Output('avg-monthly-income-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-expenses-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-investments-value', 'children', allow_duplicate=True),
+         Output('avg-monthly-surplus-value', 'children', allow_duplicate=True),
+         # Add outputs for financial planning cards
+         Output('monthly-needs-value', 'children', allow_duplicate=True),
+         Output('emergency-fund-value', 'children', allow_duplicate=True),
          # Add output for the toast
          Output('refresh-toast', 'is_open', allow_duplicate=True),
          Output('refresh-toast', 'header', allow_duplicate=True),
@@ -1063,7 +1152,7 @@ def register_callbacks(app):
             has_files_now = has_excel_files()
             dashboard_style = {'display': 'block'} if has_files_now else {'display': 'none'}
             no_files_style = {'display': 'none'} if has_files_now else {'display': 'block', 'marginTop': '20px'}
-            return html.Div("Upload your Excel files to get started."), dashboard_style, no_files_style, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+            return html.Div("Upload your Excel files to get started."), dashboard_style, no_files_style, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
         
         upload_results = []
         data_dir = get_data_dir()
@@ -1102,6 +1191,37 @@ def register_callbacks(app):
                 
                 print(f"Data reload complete. YTD Income: {ytd_income}, YTD Expenses: {ytd_expenses}, YTD Investments: {ytd_investments}, YTD Surplus: {ytd_surplus}")
                 
+                # Calculate monthly averages
+                month_count = len(month_names)
+                avg_monthly_income = ytd_income / max(1, month_count)
+                avg_monthly_expenses = ytd_expenses / max(1, month_count)
+                avg_monthly_investments = ytd_investments / max(1, month_count)
+                avg_monthly_surplus = ytd_surplus / max(1, month_count)
+                
+                # Calculate updated monthly needs and emergency fund
+                avg_monthly_needs = avg_monthly_expenses * 0.5  # Default: 50% of expenses
+                
+                # If we have labeled data, calculate based on actual "Needs" transactions
+                if not all_transactions_df.empty and 'Label' in all_transactions_df.columns:
+                    # Get transactions labeled as 'Needs'
+                    needs_transactions = all_transactions_df[all_transactions_df['Label'] == 'Needs']
+                    
+                    if not needs_transactions.empty:
+                        # Ensure Amount is numeric
+                        needs_transactions['Amount'] = pd.to_numeric(needs_transactions['Amount'], errors='coerce')
+                        needs_transactions = needs_transactions.dropna(subset=['Amount'])
+                        
+                        if not needs_transactions.empty:
+                            # Calculate monthly needs by first grouping by month
+                            monthly_needs = needs_transactions.groupby('Month')['Amount'].sum()
+                            
+                            # Calculate the average of monthly needs (average across months)
+                            if len(monthly_needs) > 0:
+                                avg_monthly_needs = monthly_needs.mean()
+                
+                # Calculate emergency fund suggestion (6 times monthly needs)
+                emergency_fund_suggestion = avg_monthly_needs * 6
+                
                 # Add automatic refresh message
                 upload_results.append(html.Div([
                     html.Div(
@@ -1117,17 +1237,24 @@ def register_callbacks(app):
                 # Prepare transaction data for updating all charts
                 transactions_data = all_transactions_df.to_dict('records') if not all_transactions_df.empty else []
                 
-                # Format the values for YTD cards
+                # Format the values for display
                 income_display = format_inr(ytd_income)
                 expenses_display = format_inr(ytd_expenses)
                 investments_display = format_inr(ytd_investments)
                 surplus_display = format_inr(ytd_surplus)
                 
+                avg_income_display = format_inr(avg_monthly_income)
+                avg_expenses_display = format_inr(avg_monthly_expenses)
+                avg_investments_display = format_inr(avg_monthly_investments)
+                avg_surplus_display = format_inr(avg_monthly_surplus)
+                
+                monthly_needs_display = format_inr(avg_monthly_needs)
+                emergency_fund_display = format_inr(emergency_fund_suggestion)
+                
                 # Create toast content with uploaded files summary
                 timestamp = datetime.now().strftime('%H:%M:%S')
                 excel_files, _ = get_excel_files()
                 file_count = len(excel_files)
-                month_count = len(month_names)
                 
                 uploaded_files = [f for f in list_of_filenames if f.endswith('.xlsx')]
                 
@@ -1146,6 +1273,11 @@ def register_callbacks(app):
                         html.Li([html.Span("Expenses: "), html.Span(expenses_display, className="text-danger")]),
                         html.Li([html.Span("Investments: "), html.Span(investments_display, className="text-info")]),
                         html.Li([html.Span("Surplus: "), html.Span(surplus_display, className="text-primary")])
+                    ]),
+                    html.P(f"Monthly Planning Values:", className="font-weight-bold mt-3 mb-1"),
+                    html.Ul([
+                        html.Li(f"Monthly Needs: {monthly_needs_display}"),
+                        html.Li(f"Emergency Fund: {emergency_fund_display}")
                     ])
                 ])
                 
@@ -1154,8 +1286,10 @@ def register_callbacks(app):
                 dashboard_style = {'display': 'block'} if has_files_now else {'display': 'none'}
                 no_files_style = {'display': 'none'} if has_files_now else {'display': 'block', 'marginTop': '20px'}
                 
+                # All values prepared for update
+                
                 # Return all values including YTD card updates and toast
-                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, income_display, expenses_display, investments_display, surplus_display, True, toast_header, toast_content
+                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, income_display, expenses_display, investments_display, surplus_display, avg_income_display, avg_expenses_display, avg_investments_display, avg_surplus_display, monthly_needs_display, emergency_fund_display, True, toast_header, toast_content
             except Exception as e:
                 error_msg = str(e)
                 print(f"Error during data reload after upload: {error_msg}")
@@ -1183,7 +1317,7 @@ def register_callbacks(app):
                 no_files_style = {'display': 'none'} if has_files_now else {'display': 'block', 'marginTop': '20px'}
                 
                 # Keep YTD displays the same if there's an error
-                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Error", error_toast_content
+                return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Error", error_toast_content
         else:
             # Add message to use refresh button if no successful uploads
             upload_results.append(html.Div(
@@ -1198,4 +1332,4 @@ def register_callbacks(app):
             no_files_style = {'display': 'none'} if has_files_now else {'display': 'block', 'marginTop': '20px'}
             
             # Keep YTD displays the same if there's no successful upload
-            return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Warning", html.P("No files were successfully uploaded. Please check the file format and try again.")
+            return html.Div(upload_results), dashboard_style, no_files_style, transactions_data, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, "Upload Warning", html.P("No files were successfully uploaded. Please check the file format and try again.")

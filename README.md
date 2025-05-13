@@ -10,9 +10,12 @@ An interactive dashboard for analyzing personal budget data from Excel files.
 - View recommendations based on spending patterns
 - Calculate emergency fund needs based on spending history
 - Analyze spending trends over time
-- **NEW:** Upload Excel files directly through the dashboard interface
-- **NEW:** Dynamic loading of files from the data directory
-- **NEW:** Template files provided for easy data creation
+- Upload Excel files directly through the dashboard interface
+- Dynamic loading of files from the data directory
+- Template files provided for easy data creation
+- **NEW:** Modular codebase for easier maintenance
+- **NEW:** Read income data from cell O3 in Excel files
+- **NEW:** Toast notifications showing summary information after refresh/upload
 
 ## Installation
 
@@ -73,7 +76,7 @@ run_dashboard.bat
 
 ```bash
 # Make sure the virtual environment is activated
-python dashboard.py
+python run_dashboard.py
 ```
 
 ### Command Line Options
@@ -81,16 +84,19 @@ python dashboard.py
 You can specify the directory containing Excel files:
 
 ```bash
-python dashboard.py --data-dir /path/to/excel/files
+python run_dashboard.py --data-dir /path/to/excel/files
 ```
 
 ## Excel File Format
 
 The dashboard expects Excel files named by month (January.xlsx, Feb.xlsx, March.xlsx, April.xlsx) with the following format:
 
-- The transaction data should be in a sheet named "Transactions" or the second sheet
+- Sheet 1: Summary sheet (can include cell O3 with total income value for the month)
+- Sheet 2 or "Transactions" sheet: Contains transaction data
 - Required columns: Category, Amount, Label (optional for N/W/L tagging)
 - Optional columns: Date, Description, Who, Whom
+
+**NEW:** If cell O3 in the first sheet contains a valid number, it will be used as the income value for that month. Otherwise, income will be estimated as 1.5x expenses.
 
 ## Labels for Transactions
 
@@ -110,4 +116,36 @@ You can label transactions in Excel files or through the dashboard:
 
 ## Customization
 
-You can modify the dashboard code in dashboard.py to add new features or visualizations.
+The dashboard code is organized in a modular structure under the `src` directory:
+
+- `src/app.py` - Main application initialization
+- `src/data/` - Data loading and processing
+- `src/layouts/` - Dashboard layout components
+- `src/components/` - Reusable UI components
+- `src/callbacks/` - Dashboard interactivity
+- `src/utils/` - Helper functions
+
+You can modify these files to add new features or visualizations.
+
+## Project Structure
+
+```
+budget_dashboard/
+├── dashboard.py          # Original single-file implementation
+├── dashboard_v2.py       # Entry point for refactored version
+├── run_dashboard.py      # Runner script
+├── run_dashboard.bat     # Windows launcher
+├── run_dashboard.sh      # Unix launcher
+├── requirements.txt      # Dependencies
+├── setup.py              # Installation script
+├── README.md             # This file
+├── data/                 # Excel data files
+├── templates/            # Template files
+└── src/                  # Refactored modular code
+    ├── app.py            # App initialization 
+    ├── data/             # Data loading modules
+    ├── layouts/          # Layout components
+    ├── components/       # UI components
+    ├── callbacks/        # Interactive callbacks
+    └── utils/            # Helper functions
+```

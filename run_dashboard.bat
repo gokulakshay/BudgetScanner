@@ -19,6 +19,6 @@ IF EXIST "%VENV_DIR%" (
 )
 
 REM Launch the dashboard
-python "%SCRIPT_DIR%dashboard.py" %*
+python "%SCRIPT_DIR%run_dashboard.py" %*
 
 ENDLOCAL
